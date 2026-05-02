@@ -190,41 +190,28 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 // @Summary 校验登录状态
 // @Description 验证 Access Token 是否有效，并返回用户信息
 // @Tags 认证 - AUTH
-// @Accept json
 // @Produce json
-// @Param body body login.PostCheckLogin true "AccessToken"
 // @Success 200 {object} login.CheckLoginResponse
-// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
 // @Router /api/auth/check [POST]
 func (h *Handler) CheckLogin(c *gin.Context) {
-	var form login.PostCheckLogin
-	if err := c.ShouldBindJSON(&form); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+	// 从 JWT 中间件注入的上下文取 user_id
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusOK, login.CheckLoginResponse{Valid: false})
 		return
 	}
 
-	// 解析 Access Token
-	claims, err := utils.ParseToken(form.AccessToken)
-	if err != nil {
-		c.JSON(http.StatusOK, login.CheckLoginResponse{
-			Valid: false,
-		})
-		return
-	}
-
-	if claims.TokenType != "access" {
-		c.JSON(http.StatusOK, login.CheckLoginResponse{
-			Valid: false,
-		})
+	id, ok := userID.(int32)
+	if !ok {
+		c.JSON(http.StatusOK, login.CheckLoginResponse{Valid: false})
 		return
 	}
 
 	// 查询用户信息
 	var user model.User
-	if err := sql.Gdb.Where("id = ?", claims.UserID).First(&user).Error; err != nil {
-		c.JSON(http.StatusOK, login.CheckLoginResponse{
-			Valid: false,
-		})
+	if err := sql.Gdb.Where("id = ?", id).First(&user).Error; err != nil {
+		c.JSON(http.StatusOK, login.CheckLoginResponse{Valid: false})
 		return
 	}
 

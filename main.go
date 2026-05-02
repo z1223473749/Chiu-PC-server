@@ -6,9 +6,9 @@ import (
 	"ffmpegserver/config"
 	"ffmpegserver/public/redis"
 	"ffmpegserver/public/sql"
-	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -22,7 +22,7 @@ func main() {
 	sql.InitDB()
 
 	// 正式环境下自动迁移表结构
-	if flag.Lookup("test.v") == nil {
+	if os.Getenv("ENV") == "prod" {
 		sql.AutoMigrateDB()
 	}
 
