@@ -1,0 +1,38 @@
+# ===== 调试/默认环境配置 =====
+
+server:
+  port: "9902"
+
+# MySQL 配置
+mysql:
+  host: 193.218.201.251
+  port: 3306
+  username: Chiu-PC
+  password: TpEMtDHB2Ra7XnXp
+  database: chiu-pc
+
+# Redis 配置
+redis:
+  host: 193.218.201.251
+  port: 6379
+  password: zl1223473749
+
+# JWT 配置
+jwt:
+  secret: "Chiu-PC_2026_JWT_Secret_Key_Do_Not_Leak"
+  access_expire_min: 15
+  refresh_expire_day: 7
+  issuer: "Chiu-PC-Server"
+
+# 日志配置
+log:
+  log_file_path: ./logs/biz/
+  log_file_name: app.log
+  max_size: 1
+  max_age: 30
+  max_backups: 7
+  compress: true
+
+# Swagger 文档
+apiDoc:
+  open: true
