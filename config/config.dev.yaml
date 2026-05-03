@@ -3,6 +3,16 @@
 server:
   port: "9902"
 
+# WebSocket 配置
+ws:
+  port: 9903
+
+# 任务配置
+task:
+  encrypt_key: "ChiuPC_VideoDedup_AES256_CBC_KEY"
+  default_concurrent: 2
+  max_concurrent: 5
+
 # MySQL 配置
 mysql:
   host: 193.218.201.251

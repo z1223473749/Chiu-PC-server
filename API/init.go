@@ -1,8 +1,11 @@
 package API
 
 import (
+	"ffmpegserver/API/dashboard"
+	deviceapi "ffmpegserver/API/device"
 	"ffmpegserver/API/login"
 	"ffmpegserver/API/middleware"
+	taskapi "ffmpegserver/API/video_dedup"
 	"ffmpegserver/config"
 	"fmt"
 
@@ -33,6 +36,18 @@ func init() {
 	{
 		authGroup := apiGroup.Group("/auth")
 		login.NewHandler().Register(authGroup)
+
+		// 去重任务
+		taskGroup := apiGroup.Group("/video-dedup")
+		taskapi.NewHandler().Register(taskGroup)
+
+		// 设备管理
+		deviceGroup := apiGroup.Group("")
+		deviceapi.NewHandler().Register(deviceGroup)
+
+		// 仪表盘
+		dashboardGroup := apiGroup.Group("")
+		dashboard.NewHandler().Register(dashboardGroup)
 	}
 
 	// 健康检查

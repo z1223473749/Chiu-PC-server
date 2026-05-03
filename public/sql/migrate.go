@@ -11,6 +11,9 @@ import (
 // 新增模型时只需在此处添加即可
 var allModels = []interface{}{
 	&model.User{},
+	&model.VideoDedupTask{},
+	&model.PcDevice{},
+	&model.TaskDailyStat{},
 }
 
 // AutoMigrateDB 启动时自动校验数据库表结构

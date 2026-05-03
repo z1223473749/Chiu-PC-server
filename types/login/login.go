@@ -2,8 +2,10 @@ package login
 
 // PostLogin 登录请求
 type PostLogin struct {
-	Account  string `json:"account" binding:"required" example:"admin"`   // 账号
-	Password string `json:"password" binding:"required" example:"123456"` // 密码
+	Account    string `json:"account" binding:"required" example:"admin"`   // 账号
+	Password   string `json:"password" binding:"required" example:"123456"` // 密码
+	PCCode     string `json:"pc_code"`                                      // 设备唯一码（登录时自动注册）
+	DeviceName string `json:"device_name"`                                  // 设备名称（计算机名）
 }
 
 // LoginResponse 登录成功响应

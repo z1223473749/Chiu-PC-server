@@ -47,9 +47,25 @@ type ServerConfig struct {
 	Port string `yaml:"port"`
 }
 
+// WsConfig WebSocket 配置
+type WsConfig struct {
+	Port              int    `yaml:"port"`
+	SslCertificate    string `yaml:"ssl_certificate,omitempty"`
+	SslCertificateKey string `yaml:"ssl_certificate_key,omitempty"`
+}
+
+// TaskConfig 任务配置
+type TaskConfig struct {
+	EncryptKey        string `yaml:"encrypt_key"`
+	DefaultConcurrent int    `yaml:"default_concurrent"`
+	MaxConcurrent     int    `yaml:"max_concurrent"`
+}
+
 // GlobalConfig 全局配置结构体
 type GlobalConfig struct {
 	ServerConfig `yaml:"server"`
+	Ws           WsConfig   `yaml:"ws"`
+	Task         TaskConfig `yaml:"task"`
 	MysqlConfig  `yaml:"mysql"`
 	RedisConfig  `yaml:"redis"`
 	JWTConfig    `yaml:"jwt"`

@@ -117,6 +117,40 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	// 注册/更新设备（如果携带了 pc_code）
+	if form.PCCode != "" {
+		now := time.Now().Unix()
+
+		var dev model.PcDevice
+		result := sql.Gdb.Where("pc_code = ?", form.PCCode).First(&dev)
+		if result.Error != nil {
+			// 不存在 → 创建
+			deviceName := form.DeviceName
+			if deviceName == "" {
+				deviceName = form.PCCode
+				if len(deviceName) > 8 {
+					deviceName = "PC-" + deviceName[:8]
+				}
+			}
+			sql.Gdb.Create(&model.PcDevice{
+				UserID:     user.ID,
+				PCCode:     form.PCCode,
+				DeviceName: deviceName,
+				IP:         c.ClientIP(),
+				IsCurrent:  true,
+				LastActive: now,
+				CreatedAt:  now,
+			})
+		} else {
+			// 已存在 → 更新 IP 和活跃时间
+			sql.Gdb.Model(&dev).Updates(map[string]interface{}{
+				"ip":          c.ClientIP(),
+				"last_active": now,
+			})
+		}
+		fmt.Printf("[登录] 设备已注册: %s (user=%d, ip=%s)\n", form.PCCode, user.ID, c.ClientIP())
+	}
+
 	// 计算过期时间戳
 	expiresIn := time.Now().Add(time.Duration(15) * time.Minute).Unix()
 
