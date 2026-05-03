@@ -42,6 +42,35 @@ func StartScheduler() {
 	s := GetScheduler()
 	log.Println("[Scheduler] 启动任务调度器")
 
+	// 注册 WS 回调（WS → scheduler 的单向依赖，不产生循环导入）
+	ws.OnTaskCompleted = func(userID int32, taskID int64, outputPath string) {
+		// 更新 DB 状态
+		sql.Gdb.Model(&model.VideoDedupTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":      model.TaskStatusDone,
+			"output_path": outputPath,
+			"progress":    100,
+			"stage":       "completed",
+			"updated_at":  time.Now().Unix(),
+		})
+		// 释放调度器计数
+		s.releaseTask(userID, taskID)
+		// 更新日统计
+		updateDailyStat(userID, "complete")
+	}
+	ws.OnTaskError = func(userID int32, taskID int64, errMsg string) {
+		// 更新 DB 状态
+		sql.Gdb.Model(&model.VideoDedupTask{}).Where("id = ?", taskID).Updates(map[string]interface{}{
+			"status":     model.TaskStatusError,
+			"error_msg":  errMsg,
+			"stage":      "error",
+			"updated_at": time.Now().Unix(),
+		})
+		// 释放调度器计数
+		s.releaseTask(userID, taskID)
+		// 更新日统计
+		updateDailyStat(userID, "fail")
+	}
+
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
 		for range ticker.C {
@@ -66,12 +95,19 @@ func (s *Scheduler) pollOnce() {
 			continue
 		}
 
+		// 检查目标设备 WS 是否在线
+		if !ws.GlobalWsHub.IsPCConnected(task.UserID, task.PCCode) {
+			log.Printf("[Scheduler] 任务 %d 跳过：PC:%s 不在线", task.ID, task.PCCode)
+			continue
+		}
+
 		// 发送 WS 消息
 		msgPayload := map[string]interface{}{
 			"task_id":       task.ID,
 			"input_file":    task.InputFilePath,
 			"output_dir":    task.OutputDir,
 			"encrypted_arg": task.EncryptedArg,
+			"trf_name":      task.TrfName,
 		}
 
 		ws.GlobalWsHub.PushToUserByPC(task.UserID, task.PCCode, "dedup_execute", msgPayload)
@@ -125,36 +161,8 @@ func (s *Scheduler) canSchedule(task model.VideoDedupTask) bool {
 	return true
 }
 
-// OnTaskCompleted 任务完成回调
-func OnTaskCompleted(userId int32, taskId int64) {
-	s := GetScheduler()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 从 DB 获取任务信息（释放计数）
-	var task model.VideoDedupTask
-	if err := sql.Gdb.Where("id = ?", taskId).First(&task).Error; err != nil {
-		return
-	}
-
-	s.running[task.PCCode]--
-	if s.running[task.PCCode] <= 0 {
-		delete(s.running, task.PCCode)
-	}
-	if task.ConcurrentLock {
-		s.locks[task.PCCode]--
-		if s.locks[task.PCCode] <= 0 {
-			delete(s.locks, task.PCCode)
-		}
-	}
-
-	// 更新日统计
-	updateDailyStat(userId, "complete")
-}
-
-// OnTaskError 任务失败回调
-func OnTaskError(userId int32, taskId int64) {
-	s := GetScheduler()
+// releaseTask 释放调度器计数（内部方法，由注册的回调调用）
+func (s *Scheduler) releaseTask(userId int32, taskId int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -173,8 +181,6 @@ func OnTaskError(userId int32, taskId int64) {
 			delete(s.locks, task.PCCode)
 		}
 	}
-
-	updateDailyStat(userId, "fail")
 }
 
 // updateDailyStat 更新日统计

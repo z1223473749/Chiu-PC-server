@@ -5,6 +5,12 @@ import (
 	"log"
 )
 
+// OnTaskCompleted 任务完成回调（由 scheduler 注册，避免循环导入）
+var OnTaskCompleted func(userID int32, taskID int64, outputPath string)
+
+// OnTaskError 任务失败回调（由 scheduler 注册，避免循环导入）
+var OnTaskError func(userID int32, taskID int64, errMsg string)
+
 // handleDedupProgress 处理去重任务进度上报
 func handleDedupProgress(client *WsClient, payload json.RawMessage) {
 	var progress struct {
@@ -45,6 +51,11 @@ func handleDedupComplete(client *WsClient, payload json.RawMessage) {
 
 	log.Printf("[WsRouter] 任务 %d 完成 (PC:%s)", complete.TaskID, client.PCCode)
 
+	// 回调 scheduler 更新 DB + 释放计数
+	if OnTaskCompleted != nil {
+		OnTaskCompleted(client.UserID, complete.TaskID, complete.OutputPath)
+	}
+
 	// 广播给该用户其他设备
 	GlobalWsHub.PushToAllExceptPC(client.UserID, client.PCCode, "dedup_complete", map[string]interface{}{
 		"task_id": complete.TaskID,
@@ -63,6 +74,11 @@ func handleDedupError(client *WsClient, payload json.RawMessage) {
 	}
 
 	log.Printf("[WsRouter] 任务 %d 失败: %s (PC:%s)", errMsg.TaskID, errMsg.Error, client.PCCode)
+
+	// 回调 scheduler 更新 DB + 释放计数
+	if OnTaskError != nil {
+		OnTaskError(client.UserID, errMsg.TaskID, errMsg.Error)
+	}
 
 	// 广播给该用户其他设备
 	GlobalWsHub.PushToAllExceptPC(client.UserID, client.PCCode, "dedup_error", map[string]interface{}{

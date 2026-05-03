@@ -100,16 +100,40 @@ func (h *WsHub) PushToUserByPC(userId int32, pcCode string, msgType string, payl
 	conns := h.clients[userId]
 	h.mu.RUnlock()
 
+	found := false
 	for _, c := range conns {
 		if c.PCCode != pcCode {
 			continue
 		}
+		found = true
 		select {
 		case c.Send <- data:
 		default:
 			log.Printf("[WsHub] 用户 %d (PC:%s) 发送缓冲满，跳过一条消息", userId, pcCode)
 		}
 	}
+	if !found {
+		log.Printf("[WsHub] 用户 %d PC:%s 不在线，消息丢弃 (type=%s)", userId, pcCode, msgType)
+	}
+}
+
+// IsPCConnected 检查指定用户的指定设备是否在线
+func (h *WsHub) IsPCConnected(userId int32, pcCode string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, c := range h.clients[userId] {
+		if c.PCCode == pcCode {
+			return true
+		}
+	}
+	return false
+}
+
+// IsUserOnline 检查用户是否有任何在线连接
+func (h *WsHub) IsUserOnline(userId int32) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients[userId]) > 0
 }
 
 // PushToAllExceptPC 向指定用户除指定 PC 外的所有连接推送

@@ -21,6 +21,7 @@ type VideoDedupTask struct {
 	OutputPath     string `gorm:"column:output_path;type:varchar(512);comment:实际输出文件路径" json:"output_path"`
 	ConfigJSON     string `gorm:"column:config_json;type:text;comment:处理参数JSON(加密前)" json:"-"`
 	EncryptedArg   string `gorm:"column:encrypted_arg;type:text;comment:AES加密后的命令参数" json:"-"`
+	TrfName        string `gorm:"column:trf_name;type:varchar(128);comment:.trf文件名(vidstab)" json:"trf_name"`
 	Status         int32  `gorm:"column:status;type:int;default:0;comment:0等待 1运行 2完成 3错误 4取消" json:"status"`
 	Progress       int32  `gorm:"column:progress;type:int;default:0;comment:进度0-100" json:"progress"`
 	Stage          string `gorm:"column:stage;type:varchar(64);comment:当前阶段" json:"stage"`

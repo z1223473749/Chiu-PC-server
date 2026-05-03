@@ -1,21 +1,27 @@
 package video_dedup
 
 import (
-	"encoding/json"
 	"log"
 	"time"
 
 	"ffmpegserver/model"
 	"ffmpegserver/public/sql"
+	"ffmpegserver/utils"
 )
 
-// CreateTask 创建去重任务
-// 输入参数来自前端 API 请求
+// TaskFileInput 单个任务输入
+type TaskFileInput struct {
+	File           string `json:"file"`
+	EncryptedCmd   string `json:"encrypted_cmd"` // @XOR@<base64>
+	TrfName        string `json:"trf_name"`      // vidstab_xxx.trf
+	ConcurrentLock bool   `json:"concurrent_lock"`
+}
+
+// CreateTaskInput 创建任务 API 输入
 type CreateTaskInput struct {
 	PCCode    string          `json:"pc_code"`
-	Files     []string        `json:"files"`
+	Tasks     []TaskFileInput `json:"tasks"`
 	OutputDir string          `json:"output_dir"`
-	Config    json.RawMessage `json:"config"`
 }
 
 // CreateTaskResult 创建结果
@@ -36,34 +42,38 @@ func CreateTasks(userID int32, input CreateTaskInput) ([]*model.VideoDedupTask, 
 		deviceName = dev.DeviceName
 	}
 
-	for _, file := range input.Files {
-		task := &model.VideoDedupTask{
-			UserID:        userID,
-			PCCode:        input.PCCode,
-			InputFilePath: file,
-			OutputDir:     input.OutputDir,
-			ConfigJSON:    string(input.Config),
-			Status:        model.TaskStatusWaiting,
-			DeviceName:    deviceName,
-			CreatedAt:     now,
-			UpdatedAt:     now,
+	for _, t := range input.Tasks {
+		// 1. 解密传输加密 → 得到完整 ffmpeg 命令明文
+		cmdPlain, err := utils.DecryptTransport(t.EncryptedCmd)
+		if err != nil {
+			log.Printf("[TaskCreate] 传输解密失败 file=%s: %v", t.File, err)
+			continue
 		}
 
-		// 检查是否禁并发
-		task.ConcurrentLock = checkConcurrentLock(input.Config)
-
-		// AES 加密命令参数
-		encrypted, err := EncryptCommand(string(input.Config))
+		// 2. 用服务端 AES 重新加密 → @ENC@<base64>
+		encryptedArg, err := EncryptCommand(string(cmdPlain))
 		if err != nil {
-			log.Printf("[TaskCreate] 加密失败 file=%s: %v", file, err)
-			// 即使加密失败仍创建任务，可后续补充
-		} else {
-			task.EncryptedArg = encrypted
+			log.Printf("[TaskCreate] AES 加密失败 file=%s: %v", t.File, err)
+			continue
+		}
+
+		// 3. 创建任务记录
+		task := &model.VideoDedupTask{
+			UserID:         userID,
+			PCCode:         input.PCCode,
+			InputFilePath:  t.File,
+			OutputDir:      input.OutputDir,
+			EncryptedArg:   encryptedArg,
+			TrfName:        t.TrfName,
+			ConcurrentLock: t.ConcurrentLock,
+			Status:         model.TaskStatusWaiting,
+			DeviceName:     deviceName,
+			CreatedAt:      now,
+			UpdatedAt:      now,
 		}
 
 		if err := sql.Gdb.Create(task).Error; err != nil {
-			log.Printf("[TaskCreate] 创建任务失败 file=%s: %v", file, err)
-			// 跳过失败的文件，继续处理其他
+			log.Printf("[TaskCreate] 创建任务失败 file=%s: %v", t.File, err)
 			continue
 		}
 
@@ -71,23 +81,4 @@ func CreateTasks(userID int32, input CreateTaskInput) ([]*model.VideoDedupTask, 
 	}
 
 	return results, nil
-}
-
-// checkConcurrentLock 检查配置是否包含禁并发功能
-func checkConcurrentLock(configData json.RawMessage) bool {
-	var cfg struct {
-		SuperRes    bool `json:"superRes"`
-		Interpolate bool `json:"interpolate"`
-		Stab        bool `json:"stab"`
-	}
-	if err := json.Unmarshal(configData, &cfg); err != nil {
-		return false
-	}
-	return cfg.SuperRes || cfg.Interpolate || cfg.Stab
-}
-
-// GetEncryptedArg 使用 AES-256-CBC 加密配置参数
-// 返回 @ENC@<base64> 格式的密文字符串
-func GetEncryptedArg(configJSON string) (string, error) {
-	return EncryptCommand(configJSON)
 }

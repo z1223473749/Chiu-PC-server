@@ -1,7 +1,6 @@
 package taskapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -41,26 +40,24 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 
 	var input struct {
-		PCCode    string          `json:"pc_code"`
-		Files     []string        `json:"files"`
-		OutputDir string          `json:"output_dir"`
-		Config    json.RawMessage `json:"config"`
+		PCCode    string                      `json:"pc_code"`
+		Tasks     []video_dedup.TaskFileInput `json:"tasks"`
+		OutputDir string                      `json:"output_dir"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
 
-	if len(input.Files) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请至少选择一个文件"})
+	if len(input.Tasks) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请至少提供一个任务"})
 		return
 	}
 
 	tasks, err := video_dedup.CreateTasks(userID, video_dedup.CreateTaskInput{
 		PCCode:    input.PCCode,
-		Files:     input.Files,
+		Tasks:     input.Tasks,
 		OutputDir: input.OutputDir,
-		Config:    input.Config,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -251,7 +248,11 @@ func (h *Handler) Delete(c *gin.Context) {
 		Update("deleted_at", now)
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除失败"})
+		errMsg := result.Error.Error()
+		if errMsg == "" {
+			errMsg = "删除失败"
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 		return
 	}
 
