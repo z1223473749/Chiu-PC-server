@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"sort"
 	"time"
 
 	"ffmpegserver/API/middleware"
@@ -61,15 +62,64 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	}
 	var overview Overview
 	sql.Gdb.Model(&model.VideoDedupTask{}).
-		Where("user_id = ? AND deleted_at = 0", userID).
+		Where("user_id = ?", userID).
 		Select("COUNT(*) as total, SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) as running, SUM(CASE WHEN status=0 THEN 1 ELSE 0 END) as waiting, SUM(CASE WHEN status=2 THEN 1 ELSE 0 END) as done, SUM(CASE WHEN status=3 THEN 1 ELSE 0 END) as failed").
 		Scan(&overview)
 
-	// 每日统计
-	var dailyStats []model.TaskDailyStat
-	sql.Gdb.Where("user_id = ? AND date >= ? AND date <= ?", userID, startDate, endDate).
-		Order("date ASC").
-		Find(&dailyStats)
+	// 每日统计（从任务表实时聚合，Go侧按本地时区归日期）
+	type DayStat struct {
+		Date      string `json:"date"`
+		Total     int64  `json:"total"`
+		Completed int64  `json:"completed"`
+		Failed    int64  `json:"failed"`
+		Running   int64  `json:"running"`
+		Waiting   int64  `json:"waiting"`
+		Cancelled int64  `json:"cancelled"`
+	}
+	// 将字符串日期转为时间戳范围
+	startTime, _ := time.ParseInLocation("2006-01-02", startDate, time.Local)
+	endTime, _ := time.ParseInLocation("2006-01-02", endDate, time.Local)
+	startTS := startTime.Unix()
+	endTS := endTime.Unix() + 86400 - 1 // 包含截止日整天
+
+	type taskRow struct {
+		CreatedAt int64
+		Status    int32
+	}
+	var rows []taskRow
+	sql.Gdb.Model(&model.VideoDedupTask{}).
+		Where("user_id = ? AND created_at >= ? AND created_at <= ?", userID, startTS, endTS).
+		Select("created_at, status").
+		Find(&rows)
+
+	// Go 侧按本地日期聚合
+	dailyMap := make(map[string]*DayStat)
+	var dateKeys []string
+	for _, r := range rows {
+		date := time.Unix(r.CreatedAt, 0).Format("2006-01-02")
+		if _, ok := dailyMap[date]; !ok {
+			dailyMap[date] = &DayStat{Date: date}
+			dateKeys = append(dateKeys, date)
+		}
+		dailyMap[date].Total++
+		switch r.Status {
+		case 0:
+			dailyMap[date].Waiting++
+		case 1:
+			dailyMap[date].Running++
+		case 2:
+			dailyMap[date].Completed++
+		case 3:
+			dailyMap[date].Failed++
+		case 4:
+			dailyMap[date].Cancelled++
+		}
+	}
+	sort.Strings(dateKeys)
+	var dailyStats []DayStat
+	for _, d := range dateKeys {
+		dailyStats = append(dailyStats, *dailyMap[d])
+	}
 
 	// 设备统计
 	type DeviceStat struct {
@@ -81,14 +131,14 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	}
 	var deviceStats []DeviceStat
 	sql.Gdb.Model(&model.VideoDedupTask{}).
-		Where("user_id = ? AND deleted_at = 0", userID).
+		Where("user_id = ?", userID).
 		Select("pc_code, MAX(device_name) as device_name, COUNT(*) as total, SUM(CASE WHEN status=2 THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN status=3 THEN 1 ELSE 0 END) as failed").
 		Group("pc_code").
 		Scan(&deviceStats)
 
 	// 最近任务
 	var recentTasks []model.VideoDedupTask
-	sql.Gdb.Where("user_id = ? AND deleted_at = 0", userID).
+	sql.Gdb.Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(5).
 		Find(&recentTasks)
