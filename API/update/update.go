@@ -61,11 +61,11 @@ func (h *Handler) List(c *gin.Context) {
 	result := make([]item, 0, len(list))
 	for _, u := range list {
 		result = append(result, item{
-			ID:          u.ID,
-			Version:     u.Version,
-			UpdateType:  u.UpdateType,
-			FileName:    u.FileName,
-			FileList:    u.FileList,
+			ID:         u.ID,
+			Version:    u.Version,
+			UpdateType: u.UpdateType,
+			FileName:   u.FileName,
+			//FileList:    u.FileList,
 			Size:        u.Size,
 			Checksum:    u.Checksum,
 			Description: u.Description,
