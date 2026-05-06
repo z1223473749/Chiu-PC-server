@@ -14,6 +14,7 @@ var allModels = []interface{}{
 	&model.VideoDedupTask{},
 	&model.PcDevice{},
 	&model.TaskDailyStat{},
+	&model.AppUpdate{},
 }
 
 // AutoMigrateDB 启动时自动校验数据库表结构

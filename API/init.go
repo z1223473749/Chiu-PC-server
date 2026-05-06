@@ -5,6 +5,7 @@ import (
 	deviceapi "ffmpegserver/API/device"
 	"ffmpegserver/API/login"
 	"ffmpegserver/API/middleware"
+	updateapi "ffmpegserver/API/update"
 	taskapi "ffmpegserver/API/video_dedup"
 	"ffmpegserver/config"
 	"fmt"
@@ -48,6 +49,9 @@ func init() {
 		// 仪表盘
 		dashboardGroup := apiGroup.Group("")
 		dashboard.NewHandler().Register(dashboardGroup)
+
+		// 更新包管理
+		updateapi.NewHandler().Register(apiGroup)
 	}
 
 	// 健康检查
@@ -60,6 +64,9 @@ func init() {
 
 	// 静态文件 - 头像
 	Gin.Static("/avatar", "./public/avatar")
+
+	// 静态文件 - 更新包下载（路径已在 JWT 白名单中放行）
+	Gin.Static("/updates", "./public/updates")
 
 	// Swagger 文档
 	if config.Config.ApiDocConfig.Open {

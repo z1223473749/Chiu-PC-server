@@ -19,6 +19,7 @@ var releasePaths = map[string]bool{
 var releasePrefixes = []string{
 	"/swagger/",
 	"/avatar/",
+	"/updates/", // 更新包静态文件，无需认证即可下载
 }
 
 // JWTAuthMiddleware JWT 认证中间件
@@ -77,7 +78,25 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		// 将用户信息注入上下文，供后续 handler 使用
 		c.Set("user_id", claims.UserID)
+		c.Set("role", claims.Role)
 
+		c.Next()
+	}
+}
+
+// RequireRole 角色权限中间件，role 必须 >= minRole 才能通过
+func RequireRole(minRole int32) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		roleVal, exists := c.Get("role")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无权限"})
+			return
+		}
+		role, ok := roleVal.(int32)
+		if !ok || role < minRole {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "权限不足"})
+			return
+		}
 		c.Next()
 	}
 }
@@ -101,6 +120,7 @@ func OptionalJWTAuthMiddleware() gin.HandlerFunc {
 		claims, err := utils.ParseToken(parts[1])
 		if err == nil && claims.TokenType == "access" {
 			c.Set("user_id", claims.UserID)
+			c.Set("role", claims.Role)
 		}
 
 		c.Next()
@@ -118,4 +138,17 @@ func GetUserIDFromContext(c *gin.Context) int32 {
 		return 0
 	}
 	return id
+}
+
+// GetRoleFromContext 从上下文中获取当前登录用户的角色
+func GetRoleFromContext(c *gin.Context) int32 {
+	roleVal, exists := c.Get("role")
+	if !exists {
+		return 0
+	}
+	role, ok := roleVal.(int32)
+	if !ok {
+		return 0
+	}
+	return role
 }

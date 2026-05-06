@@ -105,7 +105,7 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	// 生成双 Token
-	accessToken, aErr := utils.GenerateAccessToken(user.ID)
+	accessToken, aErr := utils.GenerateAccessToken(user.ID, user.Role)
 	if aErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "AccessToken 生成失败"})
 		return
@@ -198,15 +198,15 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// 验证用户是否存在
+	// 验证用户是否存在（同时获取最新 Role）
 	var user model.User
 	if err := sql.Gdb.Where("id = ?", claims.UserID).First(&user).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
 		return
 	}
 
-	// 生成新的 Access Token
-	accessToken, aErr := utils.GenerateAccessToken(user.ID)
+	// 生成新的 Access Token（携带最新 Role）
+	accessToken, aErr := utils.GenerateAccessToken(user.ID, user.Role)
 	if aErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "AccessToken 生成失败"})
 		return

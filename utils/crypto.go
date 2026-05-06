@@ -31,15 +31,17 @@ func CheckPassword(password, hash string) bool {
 // CustomClaims JWT 自定义声明
 type CustomClaims struct {
 	UserID    int32  `json:"user_id"`
+	Role      int32  `json:"role"`       // 用户角色: 0-普通 66-管理员 888-超管
 	TokenType string `json:"token_type"` // "access" 或 "refresh"
 	jwt.RegisteredClaims
 }
 
 // GenerateAccessToken 生成 Access Token（短期有效）
-func GenerateAccessToken(userID int32) (string, error) {
+func GenerateAccessToken(userID int32, role int32) (string, error) {
 	cfg := config.Config.JWTConfig
 	claims := CustomClaims{
 		UserID:    userID,
+		Role:      role,
 		TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(cfg.AccessExpireMin) * time.Minute)),
