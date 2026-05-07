@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"ffmpegserver/config"
 	"ffmpegserver/model"
 	"ffmpegserver/public/sql"
 	"ffmpegserver/service/ws"
@@ -23,7 +22,6 @@ var (
 type Scheduler struct {
 	mu      sync.Mutex
 	running map[string]int // pcCode → 运行中的任务数
-	locks   map[string]int // pcCode → 禁并发任务数
 }
 
 // GetScheduler 获取调度器单例
@@ -31,7 +29,6 @@ func GetScheduler() *Scheduler {
 	schedulerOnce.Do(func() {
 		scheduler = &Scheduler{
 			running: make(map[string]int),
-			locks:   make(map[string]int),
 		}
 	})
 	return scheduler
@@ -74,7 +71,14 @@ func StartScheduler() {
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
 		for range ticker.C {
-			s.pollOnce()
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Scheduler] pollOnce panic recovered: %v", r)
+					}
+				}()
+				s.pollOnce()
+			}()
 		}
 	}()
 }
@@ -92,12 +96,6 @@ func (s *Scheduler) pollOnce() {
 	for _, task := range tasks {
 		// 检查设备并发限制
 		if !s.canSchedule(task) {
-			continue
-		}
-
-		// 检查目标设备 WS 是否在线
-		if !ws.GlobalWsHub.IsPCConnected(task.UserID, task.PCCode) {
-			log.Printf("[Scheduler] 任务 %d 跳过：PC:%s 不在线", task.ID, task.PCCode)
 			continue
 		}
 
@@ -120,42 +118,29 @@ func (s *Scheduler) pollOnce() {
 		})
 
 		s.running[task.PCCode]++
-		if task.ConcurrentLock {
-			s.locks[task.PCCode]++
-		}
 
 		log.Printf("[Scheduler] 调度任务 %d → PC:%s", task.ID, task.PCCode)
 	}
+
+	// 清理孤儿任务：PC 断线期间卡在 running 状态超过 5 分钟的任务
+	s.cleanupOrphanTasks()
 }
 
 // canSchedule 检查任务是否可以调度
 func (s *Scheduler) canSchedule(task model.VideoDedupTask) bool {
-	concurrentLimit := config.Config.Task.DefaultConcurrent
+	// 确保 PC 在线才调度
+	if !ws.GlobalWsHub.IsPCConnected(task.UserID, task.PCCode) {
+		return false
+	}
+
+	concurrentLimit := task.ConcurrentLimit
 	if concurrentLimit <= 0 {
 		concurrentLimit = 2
 	}
 
 	runningCount := s.running[task.PCCode]
-	lockCount := s.locks[task.PCCode]
-
-	if task.ConcurrentLock {
-		// 禁并发任务：同一设备只允许 1 个
-		// 假设单 GPU
-		if lockCount >= 1 {
-			return false
-		}
-		// 如果已有普通任务在运行，禁并发任务也需等待
-		if runningCount > 0 {
-			return false
-		}
-	} else {
-		// 如果已有禁并发任务在运行，普通任务需要等
-		if lockCount > 0 {
-			return false
-		}
-		if runningCount >= concurrentLimit {
-			return false
-		}
+	if runningCount >= concurrentLimit {
+		return false
 	}
 
 	return true
@@ -168,6 +153,10 @@ func (s *Scheduler) releaseTask(userId int32, taskId int64) {
 
 	var task model.VideoDedupTask
 	if err := sql.Gdb.Where("id = ?", taskId).First(&task).Error; err != nil {
+		// 即使 DB 查不到也强制扣计数器，避免槽位泄露
+		if s.running[""] > 0 {
+			s.running[""]--
+		}
 		return
 	}
 
@@ -175,10 +164,27 @@ func (s *Scheduler) releaseTask(userId int32, taskId int64) {
 	if s.running[task.PCCode] <= 0 {
 		delete(s.running, task.PCCode)
 	}
-	if task.ConcurrentLock {
-		s.locks[task.PCCode]--
-		if s.locks[task.PCCode] <= 0 {
-			delete(s.locks, task.PCCode)
+}
+
+// cleanupOrphanTasks 清理孤儿任务（PC 断线期间一直卡在 running 状态的任务）
+func (s *Scheduler) cleanupOrphanTasks() {
+	var orphans []model.VideoDedupTask
+	sql.Gdb.Model(&model.VideoDedupTask{}).
+		Where("status = ? AND updated_at < ?", model.TaskStatusRunning, time.Now().Add(-5*time.Minute).Unix()).
+		Find(&orphans)
+
+	for _, t := range orphans {
+		if !ws.GlobalWsHub.IsPCConnected(t.UserID, t.PCCode) {
+			sql.Gdb.Model(&model.VideoDedupTask{}).Where("id = ?", t.ID).Updates(map[string]interface{}{
+				"status":     model.TaskStatusError,
+				"error_msg":  "PC 断线超时，任务自动取消",
+				"updated_at": time.Now().Unix(),
+			})
+			s.running[t.PCCode]--
+			if s.running[t.PCCode] <= 0 {
+				delete(s.running, t.PCCode)
+			}
+			log.Printf("[Scheduler] 清理孤儿任务 %d (PC %s 断线超时)", t.ID, t.PCCode)
 		}
 	}
 }

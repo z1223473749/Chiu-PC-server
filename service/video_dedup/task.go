@@ -11,17 +11,18 @@ import (
 
 // TaskFileInput 单个任务输入
 type TaskFileInput struct {
-	File           string `json:"file"`
-	EncryptedCmd   string `json:"encrypted_cmd"` // @XOR@<base64>
-	TrfName        string `json:"trf_name"`      // vidstab_xxx.trf
-	ConcurrentLock bool   `json:"concurrent_lock"`
+	File            string `json:"file"`
+	EncryptedCmd    string `json:"encrypted_cmd"` // @XOR@<base64>
+	TrfName         string `json:"trf_name"`      // vidstab_xxx.trf
+	ConcurrentLimit int    `json:"concurrent_limit"`
 }
 
 // CreateTaskInput 创建任务 API 输入
 type CreateTaskInput struct {
-	PCCode    string          `json:"pc_code"`
-	Tasks     []TaskFileInput `json:"tasks"`
-	OutputDir string          `json:"output_dir"`
+	PCCode          string          `json:"pc_code"`
+	ConcurrentLimit int             `json:"concurrent_limit"`
+	Tasks           []TaskFileInput `json:"tasks"`
+	OutputDir       string          `json:"output_dir"`
 }
 
 // CreateTaskResult 创建结果
@@ -58,18 +59,22 @@ func CreateTasks(userID int32, input CreateTaskInput) ([]*model.VideoDedupTask, 
 		}
 
 		// 3. 创建任务记录
+		concurrentLimit := input.ConcurrentLimit
+		if concurrentLimit <= 0 {
+			concurrentLimit = 2
+		}
 		task := &model.VideoDedupTask{
-			UserID:         userID,
-			PCCode:         input.PCCode,
-			InputFilePath:  t.File,
-			OutputDir:      input.OutputDir,
-			EncryptedArg:   encryptedArg,
-			TrfName:        t.TrfName,
-			ConcurrentLock: t.ConcurrentLock,
-			Status:         model.TaskStatusWaiting,
-			DeviceName:     deviceName,
-			CreatedAt:      now,
-			UpdatedAt:      now,
+			UserID:          userID,
+			PCCode:          input.PCCode,
+			InputFilePath:   t.File,
+			OutputDir:       input.OutputDir,
+			EncryptedArg:    encryptedArg,
+			TrfName:         t.TrfName,
+			ConcurrentLimit: concurrentLimit,
+			Status:          model.TaskStatusWaiting,
+			DeviceName:      deviceName,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 
 		if err := sql.Gdb.Create(task).Error; err != nil {
