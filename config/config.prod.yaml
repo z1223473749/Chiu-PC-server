@@ -15,7 +15,7 @@ task:
 
 # MySQL 配置
 mysql:
-  host: 193.218.201.251
+  host: 127.0.0.1
   port: 3306
   username: Chiu-PC
   password: TpEMtDHB2Ra7XnXp
@@ -23,7 +23,7 @@ mysql:
 
 # Redis 配置
 redis:
-  host: 193.218.201.251
+  host: 127.0.0.1
   port: 6379
   password: zl1223473749
 
