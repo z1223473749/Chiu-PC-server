@@ -12,7 +12,7 @@ type AppUpdate struct {
 	FileList    string `gorm:"type:text" json:"file_list"`          // JSON数组：zip内文件相对路径列表
 	Size        int64  `gorm:"" json:"size"`
 	Checksum    string `gorm:"type:varchar(64)" json:"checksum"` // SHA256
-	Description string `gorm:"type:varchar(500)" json:"description"`
+	Description string `gorm:"type:text" json:"description"`
 	CreatedBy   int32  `gorm:"" json:"created_by"`
 	CreatedAt   int64  `gorm:"autoCreateTime" json:"created_at"`
 }
