@@ -79,7 +79,9 @@ func StartWsServer(port int) {
 	for {
 		var err error
 		if os.Getenv("ENV") == "prod" {
-			err = srv.ListenAndServeTLS(config.Config.Ws.SslCertificate, config.Config.Ws.SslCertificateKey)
+			fmt.Println("SslCertificate：", config.Config.Ws.SslCertificate, config.Config.Ws.SslCertificateKey)
+			//err = srv.ListenAndServeTLS(config.Config.Ws.SslCertificate, config.Config.Ws.SslCertificateKey)
+			err = srv.ListenAndServe()
 		} else {
 			err = srv.ListenAndServe()
 		}

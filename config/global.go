@@ -48,10 +48,10 @@ type ServerConfig struct {
 }
 
 // WsConfig WebSocket 配置
-type WsConfig struct {
+type Ws struct {
+	SslCertificate    string `yaml:"SslCertificate"`
+	SslCertificateKey string `yaml:"SslCertificateKey"`
 	Port              int    `yaml:"port"`
-	SslCertificate    string `yaml:"ssl_certificate,omitempty"`
-	SslCertificateKey string `yaml:"ssl_certificate_key,omitempty"`
 }
 
 // TaskConfig 任务配置
@@ -64,7 +64,7 @@ type TaskConfig struct {
 // GlobalConfig 全局配置结构体
 type GlobalConfig struct {
 	ServerConfig `yaml:"server"`
-	Ws           WsConfig   `yaml:"ws"`
+	Ws           Ws         `yaml:"ws"`
 	Task         TaskConfig `yaml:"task"`
 	MysqlConfig  `yaml:"mysql"`
 	RedisConfig  `yaml:"redis"`

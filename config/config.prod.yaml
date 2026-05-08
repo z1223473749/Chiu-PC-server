@@ -6,6 +6,8 @@ server:
 # WebSocket 配置
 ws:
   port: 9903
+  SslCertificate: /www/server/panel/vhost/cert/ffmpegserver_linux/fullchain.pem
+  SslCertificateKey: /www/server/panel/vhost/cert/ffmpegserver_linux/privkey.pem
 
 # 任务配置
 task:
