@@ -40,9 +40,10 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 
 	var input struct {
-		PCCode    string                      `json:"pc_code"`
-		Tasks     []video_dedup.TaskFileInput `json:"tasks"`
-		OutputDir string                      `json:"output_dir"`
+		PCCode          string                      `json:"pc_code"`
+		ConcurrentLimit int                         `json:"concurrent_limit"`
+		Tasks           []video_dedup.TaskFileInput `json:"tasks"`
+		OutputDir       string                      `json:"output_dir"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
@@ -55,9 +56,10 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 
 	tasks, err := video_dedup.CreateTasks(userID, video_dedup.CreateTaskInput{
-		PCCode:    input.PCCode,
-		Tasks:     input.Tasks,
-		OutputDir: input.OutputDir,
+		PCCode:          input.PCCode,
+		ConcurrentLimit: input.ConcurrentLimit,
+		Tasks:           input.Tasks,
+		OutputDir:       input.OutputDir,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

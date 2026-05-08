@@ -39,6 +39,15 @@ func StartScheduler() {
 	s := GetScheduler()
 	log.Println("[Scheduler] 启动任务调度器")
 
+	// 启动孤儿任务清理协程（1 分钟间隔，独立于调度主循环）
+	go func() {
+		cleanupTicker := time.NewTicker(1 * time.Minute)
+		defer cleanupTicker.Stop()
+		for range cleanupTicker.C {
+			s.CleanupOrphanTasks()
+		}
+	}()
+
 	// 注册 WS 回调（WS → scheduler 的单向依赖，不产生循环导入）
 	ws.OnTaskCompleted = func(userID int32, taskID int64, outputPath string) {
 		// 更新 DB 状态
@@ -85,21 +94,68 @@ func StartScheduler() {
 
 // pollOnce 执行一次调度
 func (s *Scheduler) pollOnce() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// 1. 无锁：查询等待中的任务（最多 1000 条，防 OOM）
 	var tasks []model.VideoDedupTask
 	sql.Gdb.Where("status = ? AND deleted_at = 0", model.TaskStatusWaiting).
 		Order("created_at ASC").
+		Limit(1000).
 		Find(&tasks)
+	if len(tasks) == 0 {
+		return
+	}
 
+	// 2. 无锁：提取去重后的 PCCode 列表
+	pcCodeSet := make(map[string]struct{})
+	var pcCodes []string
 	for _, task := range tasks {
-		// 检查设备并发限制
-		if !s.canSchedule(task) {
-			continue
+		if _, ok := pcCodeSet[task.PCCode]; !ok {
+			pcCodeSet[task.PCCode] = struct{}{}
+			pcCodes = append(pcCodes, task.PCCode)
+		}
+	}
+
+	// 3. 无锁：只查询有等待任务的设备并发限制
+	var devices []model.PcDevice
+	sql.Gdb.Select("pc_code, concurrent_limit").
+		Where("pc_code IN ?", pcCodes).Find(&devices)
+	deviceLimits := make(map[string]int, len(devices))
+	for _, d := range devices {
+		limit := d.ConcurrentLimit
+		if limit <= 0 {
+			limit = 1
+		}
+		deviceLimits[d.PCCode] = limit
+	}
+
+	// 4. 锁阶段：调度决策 + DB 状态更新（闭包确保锁在 WS 推送前释放）
+	var batch []model.VideoDedupTask
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, task := range tasks {
+			if !s.canSchedule(task, deviceLimits) {
+				continue
+			}
+			s.running[task.PCCode]++
+			batch = append(batch, task)
 		}
 
-		// 发送 WS 消息
+		if len(batch) > 0 {
+			ids := make([]int64, len(batch))
+			for i, t := range batch {
+				ids[i] = t.ID
+			}
+			now := time.Now().Unix()
+			sql.Gdb.Model(&model.VideoDedupTask{}).
+				Where("id IN ? AND status = ?", ids, model.TaskStatusWaiting).
+				Updates(map[string]interface{}{
+					"status":     model.TaskStatusRunning,
+					"updated_at": now,
+				})
+		}
+	}()
+	// 5. 无锁：WS 推送
+	for _, task := range batch {
 		msgPayload := map[string]interface{}{
 			"task_id":       task.ID,
 			"input_file":    task.InputFilePath,
@@ -107,43 +163,24 @@ func (s *Scheduler) pollOnce() {
 			"encrypted_arg": task.EncryptedArg,
 			"trf_name":      task.TrfName,
 		}
-
 		ws.GlobalWsHub.PushToUserByPC(task.UserID, task.PCCode, "dedup_execute", msgPayload)
-
-		// 更新状态
-		now := time.Now().Unix()
-		sql.Gdb.Model(&task).Updates(map[string]interface{}{
-			"status":     model.TaskStatusRunning,
-			"updated_at": now,
-		})
-
-		s.running[task.PCCode]++
-
 		log.Printf("[Scheduler] 调度任务 %d → PC:%s", task.ID, task.PCCode)
 	}
-
-	// 清理孤儿任务：PC 断线期间卡在 running 状态超过 5 分钟的任务
-	s.cleanupOrphanTasks()
 }
 
 // canSchedule 检查任务是否可以调度
-func (s *Scheduler) canSchedule(task model.VideoDedupTask) bool {
+func (s *Scheduler) canSchedule(task model.VideoDedupTask, deviceLimits map[string]int) bool {
 	// 确保 PC 在线才调度
 	if !ws.GlobalWsHub.IsPCConnected(task.UserID, task.PCCode) {
 		return false
 	}
 
-	concurrentLimit := task.ConcurrentLimit
-	if concurrentLimit <= 0 {
-		concurrentLimit = 2
+	limit := deviceLimits[task.PCCode]
+	if limit <= 0 {
+		limit = 1
 	}
 
-	runningCount := s.running[task.PCCode]
-	if runningCount >= concurrentLimit {
-		return false
-	}
-
-	return true
+	return s.running[task.PCCode] < limit
 }
 
 // releaseTask 释放调度器计数（内部方法，由注册的回调调用）
@@ -166,8 +203,11 @@ func (s *Scheduler) releaseTask(userId int32, taskId int64) {
 	}
 }
 
-// cleanupOrphanTasks 清理孤儿任务（PC 断线期间一直卡在 running 状态的任务）
-func (s *Scheduler) cleanupOrphanTasks() {
+// CleanupOrphanTasks 清理孤儿任务（PC 断线期间一直卡在 running 状态的任务）
+func (s *Scheduler) CleanupOrphanTasks() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var orphans []model.VideoDedupTask
 	sql.Gdb.Model(&model.VideoDedupTask{}).
 		Where("status = ? AND updated_at < ?", model.TaskStatusRunning, time.Now().Add(-5*time.Minute).Unix()).

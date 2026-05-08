@@ -10,7 +10,7 @@ ws:
 # 任务配置
 task:
   encrypt_key: "ChiuPC_VideoDedup_AES256_CBC_KEY"
-  default_concurrent: 2
+  default_concurrent: 1
   max_concurrent: 5
 
 # MySQL 配置

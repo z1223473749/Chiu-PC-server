@@ -61,7 +61,7 @@ func CreateTasks(userID int32, input CreateTaskInput) ([]*model.VideoDedupTask, 
 		// 3. 创建任务记录
 		concurrentLimit := input.ConcurrentLimit
 		if concurrentLimit <= 0 {
-			concurrentLimit = 2
+			concurrentLimit = 1
 		}
 		task := &model.VideoDedupTask{
 			UserID:          userID,
@@ -85,5 +85,10 @@ func CreateTasks(userID int32, input CreateTaskInput) ([]*model.VideoDedupTask, 
 		results = append(results, task)
 	}
 
+	// 更新设备的并发限制
+	if input.ConcurrentLimit > 0 {
+		sql.Gdb.Model(&model.PcDevice{}).Where("pc_code = ?", input.PCCode).
+			Update("concurrent_limit", input.ConcurrentLimit)
+	}
 	return results, nil
 }
